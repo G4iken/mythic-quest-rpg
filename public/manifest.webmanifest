@@ -1,0 +1,18 @@
+{
+  "name": "Mythic Quest \u2014 Adventure RPG",
+  "short_name": "Mythic Quest",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#120b18",
+  "theme_color": "#120b18",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "description": "A landscape-first 3D adventure RPG with joystick movement, cloud saves, and turn-based battles."
+}

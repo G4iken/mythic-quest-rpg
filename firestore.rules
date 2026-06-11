@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/saves/{slotId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /publicLeaderboards/{areaId}/runs/{runId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.playerName is string
+        && request.resource.data.areaId == areaId
+        && request.resource.data.clearTime is number
+        && request.resource.data.clearTime > 0
+        && request.resource.data.clearTime < 3600;
+      allow update, delete: if false;
+    }
+  }
+}
