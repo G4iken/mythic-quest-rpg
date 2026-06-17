@@ -237,7 +237,7 @@ function variantFor(index: number, areaId: string, difficulty: Difficulty = 'nor
 }
 
 function applyVariantAndDifficulty(enemy: Fighter3D, areaId: string, index: number, difficulty: Difficulty, towerFloor: number = 1): Fighter3D {
-  const variant = variantFor(index, areaId, difficulty, towerFloor);
+  const variant = variantFor(index, areaId, difficulty);
   const element = enemyElementProfile(enemy.sourceId, areaId);
   const diff = difficultyConfig(difficulty);
   const hpVariant = variant === 'elite' ? 1.35 : variant === 'armored' ? 1.18 : 1;
