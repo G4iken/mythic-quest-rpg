@@ -202,6 +202,9 @@ export interface PlayerData {
   };
   weeklyChallenges?: Record<string, { progress: number; claimed: boolean }>;
   lastChallengeSeed?: string;
+  towerBestFloor?: number;
+  practiceModeClears?: Record<string, number>;
+  ghostRuns?: Record<string, string>;
 }
 
 export interface AreaProgress {

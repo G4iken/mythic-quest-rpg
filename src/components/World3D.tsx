@@ -73,6 +73,10 @@ function distance2D(a: THREE.Vector3, b?: [number, number, number]) {
   return Math.hypot(a.x - b[0], a.z - b[2]);
 }
 
+function rng(min: number, max: number) {
+  return Math.random() * (max - min) + min;
+}
+
 function useKeyboardVector() {
   const keyboard = useRef<StickVector>({ x: 0, y: 0 });
   const pressed = useRef(new Set<string>());
@@ -130,8 +134,18 @@ function Player({ playerRef }: { playerRef: RefObject<THREE.Group | null> }) {
 }
 
 function NPC({ label, role, position }: { label: string; role: string; position: [number, number, number] }) {
+  const groupRef = useRef<THREE.Group | null>(null);
+  const phase = useMemo(() => Math.random() * Math.PI * 2, []);
+  useFrame((state) => {
+    if (!groupRef.current) return;
+    const t = state.clock.elapsedTime * 0.9 + phase;
+    groupRef.current.position.x = position[0] + Math.sin(t) * 0.4;
+    groupRef.current.position.z = position[2] + Math.cos(t * 1.2) * 0.28;
+    groupRef.current.position.y = position[1] + Math.sin(t * 2.2) * 0.03;
+    groupRef.current.rotation.y = Math.sin(t * .5) * 0.14;
+  });
   return (
-    <group position={position}>
+    <group ref={groupRef} position={position}>
       <mesh position={[0, 0.46, 0]} castShadow>
         <cylinderGeometry args={[0.3, 0.36, 0.9, 14]} />
         <meshStandardMaterial color="#8b5d33" roughness={0.82} />
@@ -257,6 +271,10 @@ function GroundDetails() {
 function Scene({ save, stick, keyboard, onNearbyChange }: SceneProps) {
   const playerRef = useRef<THREE.Group | null>(null);
   const lastTargetId = useRef<string>('none');
+  const ambientLightRef = useRef<THREE.DirectionalLight | null>(null);
+  const weatherGroupRef = useRef<THREE.Group | null>(null);
+  const backgroundColor = useMemo(() => new THREE.Color('#101929'), []);
+  const weatherDrops = useMemo(() => Array.from({ length: 16 }, () => ({ x: rng(-14, 14), z: rng(-14, 14), y: rng(1.2, 9.8), length: rng(0.14, 0.28) })), []);
   const { camera } = useThree();
 
   useEffect(() => {
@@ -265,9 +283,28 @@ function Scene({ save, stick, keyboard, onNearbyChange }: SceneProps) {
   }, [camera]);
 
   useFrame((state, delta) => {
+    const cycle = (state.clock.elapsedTime / 18) % 1;
+    const dayValue = Math.sin(cycle * Math.PI * 2) * 0.45 + 0.55;
+    const skyColor = new THREE.Color().setHSL(0.63, 0.22, Math.max(0.05, dayValue * 0.14));
+    backgroundColor.lerp(skyColor, 0.08);
+    if (state.scene.fog) state.scene.fog.color.lerp(skyColor, 0.1);
+    if (ambientLightRef.current) {
+      ambientLightRef.current.color.setHSL(0.12, 0.7, 0.35 + dayValue * 0.22);
+      ambientLightRef.current.intensity = 0.9 + dayValue * 0.38;
+    }
+    const rain = cycle > 0.1 && cycle < 0.55;
+    const mist = cycle >= 0.55 && cycle < 0.8;
+    if (weatherGroupRef.current) {
+      weatherGroupRef.current.children.forEach(child => {
+        if (!(child instanceof THREE.Mesh)) return;
+        child.position.y -= delta * (rain ? 14 : mist ? 2 : 0);
+        if (child.position.y < 0) child.position.y = 10;
+        (child.material as THREE.Material & { opacity: number }).opacity = rain ? 0.18 : mist ? 0.08 : 0;
+      });
+    }
+
     const player = playerRef.current;
     if (!player) return;
-
     const vector = Math.hypot(stick.x, stick.y) > 0.05 ? stick : keyboard.current;
     const length = Math.min(1, Math.hypot(vector.x, vector.y));
     if (length > 0.04) {
@@ -311,9 +348,10 @@ function Scene({ save, stick, keyboard, onNearbyChange }: SceneProps) {
 
   return (
     <>
+      <color attach="background" args={[backgroundColor]} />
       <ambientLight intensity={0.72} />
-      <directionalLight position={[6, 9, 5]} intensity={1.35} castShadow shadow-mapSize={[1024, 1024]} />
-      <fog attach="fog" args={['#101929', 13, 34]} />
+      <directionalLight ref={ambientLightRef} position={[6, 9, 5]} intensity={1.35} castShadow shadow-mapSize={[1024, 1024]} />
+      <fog attach="fog" args={[backgroundColor, 13, 34]} />
       <GroundDetails />
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <ringGeometry args={[6.2, 6.45, 72]} />
@@ -321,6 +359,14 @@ function Scene({ save, stick, keyboard, onNearbyChange }: SceneProps) {
       </mesh>
       {NPCS.map(npc => <NPC key={npc.id} label={npc.label} role={npc.role} position={npc.position} />)}
       {AREAS.map(area => <AreaGate key={area.id} area={area} save={save} />)}
+      <group ref={weatherGroupRef}>
+        {weatherDrops.map((drop, index) => (
+          <mesh key={index} position={[drop.x, drop.y, drop.z]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.02, drop.length]} />
+            <meshBasicMaterial color="#a4d3ff" transparent opacity={0} depthWrite={false} />
+          </mesh>
+        ))}
+      </group>
       <Player playerRef={playerRef} />
     </>
   );

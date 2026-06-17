@@ -43,7 +43,9 @@ export function createNewSave(accountId: string, slotId: string, playerName: str
       guildAffinity: { elder: 0, blacksmith: 0, merchant: 0, ranger: 0 },
       telemetry: { deaths: 0, potionsUsed: 0, totalKills: 0, totalCoins: 0, totalPlaySeconds: 0, bossPracticeClears: 0, challengeClears: 0 },
       weeklyChallenges: {},
-      lastChallengeSeed: ''
+      lastChallengeSeed: '',
+      practiceModeClears: {},
+      ghostRuns: {}
     },
     inventory: [
       { itemId: 'wooden-sword', quantity: 1 },

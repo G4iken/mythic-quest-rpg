@@ -36,7 +36,9 @@ function migrateSave(raw: GameSave): GameSave {
       guildAffinity: raw.player.guildAffinity ?? { elder: 0, blacksmith: 0, merchant: 0, ranger: 0 },
       telemetry: raw.player.telemetry ?? { deaths: 0, potionsUsed: 0, totalKills: 0, totalCoins: 0, totalPlaySeconds: 0, bossPracticeClears: 0, challengeClears: 0 },
       weeklyChallenges: raw.player.weeklyChallenges ?? {},
-      lastChallengeSeed: raw.player.lastChallengeSeed ?? ''
+      lastChallengeSeed: raw.player.lastChallengeSeed ?? '',
+      practiceModeClears: raw.player.practiceModeClears ?? {},
+      ghostRuns: raw.player.ghostRuns ?? {}
     },
     inventory: raw.inventory ?? [],
     areaProgress,

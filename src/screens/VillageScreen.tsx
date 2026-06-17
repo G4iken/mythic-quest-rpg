@@ -10,10 +10,12 @@ interface Props {
   save: GameSave;
   go: (screen: Screen) => void;
   onEnterStage: (areaId: string) => void;
+  onEnterPractice: (areaId: string) => void;
   onOpenChest: (areaId: string) => void;
+  onEnterTower: () => void;
 }
 
-export function VillageScreen({ save, go, onEnterStage, onOpenChest }: Props) {
+export function VillageScreen({ save, go, onEnterStage, onEnterPractice, onOpenChest, onEnterTower }: Props) {
   const [stick, setStick] = useState<StickVector>({ x: 0, y: 0 });
   const [nearby, setNearby] = useState<NearbyTarget | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -45,6 +47,7 @@ export function VillageScreen({ save, go, onEnterStage, onOpenChest }: Props) {
         <div className="world-help panel">
           <strong>3D Village Controls</strong>
           <p>Mobile: drag the joystick. Desktop: WASD or arrow keys. Walk to a glowing portal and choose Enter Stage. Pause or clear a stage to come back here.</p>
+          <p>The Tower is an endless challenge mode. Each run starts a new floor with stronger monsters and a guardian boss; your best floor is saved between runs.</p>
         </div>
       )}
 
@@ -52,6 +55,7 @@ export function VillageScreen({ save, go, onEnterStage, onOpenChest }: Props) {
 
       <div className="quick-world-actions safe-bottom">
         <button className="ghost small" onClick={() => go('map')}>Area Cards</button>
+        <button className="ghost small" onClick={() => onEnterTower()}>Tower</button>
         <button className="ghost small" onClick={() => go('shop')}>Shop</button>
         <button className="ghost small" onClick={() => go('profile')}>Records</button>
       </div>

@@ -52,6 +52,10 @@ export function ProfileScreen({ save, updateSave, notify }: Props) {
   const achievements = computeAchievements(save);
   const daily = save.player.dailyLogin ?? { lastClaimDate: '', streak: 0 };
   const canClaimDaily = daily.lastClaimDate !== todayKey();
+  const powerScore = Math.round(
+    stats.attack * 1.7 + stats.defense * 1.4 + stats.maxHp * 0.24 + stats.maxMana * 0.2 +
+    Object.values(save.player.artifacts ?? {}).reduce((sum, level) => sum + level * 8, 0)
+  );
   const [leaderboard, setLeaderboard] = useState<LeaderboardRun[]>([]);
   const difficulty = save.settings.difficulty ?? 'normal';
 
@@ -89,17 +93,49 @@ export function ProfileScreen({ save, updateSave, notify }: Props) {
   return (
     <section className="profile-screen upgraded-profile">
       <div className="panel profile-card hero-profile-card">
-        <span className={`profile-avatar ${character.className}`}>{character.icon}</span>
-        <p className="eyebrow">Player Profile</p>
-        <h1>{save.player.name}</h1>
-        <p>{character.title} • Level {save.player.level} • {getArea(save.player.currentAreaId).name}</p>
+        <div className="hero-top-row">
+          <div className="hero-avatar-wrap">
+            <span className={`profile-avatar ${character.className}`}>{character.icon}</span>
+          </div>
+          <div className="hero-summary">
+            <p className="eyebrow">Player Profile</p>
+            <h1>{save.player.name}</h1>
+            <p>{character.title}</p>
+            <div className="hero-meta-row"><span>Level {save.player.level}</span><span>{getArea(save.player.currentAreaId).name}</span></div>
+          </div>
+          <div className="power-badge">
+            <span>Combat Power</span>
+            <strong>{powerScore}</strong>
+          </div>
+        </div>
+
         <div className="stat-grid"><span>HP {stats.maxHp}</span><span>Mana {stats.maxMana}</span><span>ATK {stats.attack}</span><span>DEF {stats.defense}</span></div>
-        <p>Weapon: {ITEMS[save.player.equippedWeaponId].icon} {ITEMS[save.player.equippedWeaponId].name} +{save.player.equipmentLevels?.[save.player.equippedWeaponId] ?? 0}</p>
-        <p>Armor: {ITEMS[save.player.equippedArmorId].icon} {ITEMS[save.player.equippedArmorId].name} +{save.player.equipmentLevels?.[save.player.equippedArmorId] ?? 0}</p>
-        <p>Heroes unlocked: {unlocked.length} • Pet: {pet.icon} {pet.name}</p>
-        <p>Build path: {(save.player.skillTree?.activePath ?? 'blade').toUpperCase()}</p>
-        <p>Telemetry: {save.player.telemetry?.totalKills ?? 0} kills • {save.player.telemetry?.deaths ?? 0} defeats • {Math.round((save.player.telemetry?.totalPlaySeconds ?? 0) / 60)} min played</p>
+        <div className="hero-detail-row">
+          <div><b>Weapon</b><p>{ITEMS[save.player.equippedWeaponId].icon} {ITEMS[save.player.equippedWeaponId].name} +{save.player.equipmentLevels?.[save.player.equippedWeaponId] ?? 0}</p></div>
+          <div><b>Armor</b><p>{ITEMS[save.player.equippedArmorId].icon} {ITEMS[save.player.equippedArmorId].name} +{save.player.equipmentLevels?.[save.player.equippedArmorId] ?? 0}</p></div>
+          <div><b>Build</b><p>{(save.player.skillTree?.activePath ?? 'blade').toUpperCase()}</p></div>
+        </div>
+        <div className="hero-detail-row hero-detail-tight">
+          <span>{character.role} • {character.skillName}</span>
+          <span>{unlocked.length} heroes unlocked • {getUnlockedPetIds(save).length} pets unlocked</span>
+        </div>
         <p className="muted">Last saved: {new Date(save.updatedAt).toLocaleString()}</p>
+      </div>
+
+      <div className="panel profile-card companion-card">
+        <p className="eyebrow">Companion</p>
+        <div className="companion-line">
+          <span className="profile-avatar pet-avatar">{pet.icon}</span>
+          <div>
+            <h2>{pet.name}</h2>
+            <p>{pet.title}</p>
+            <div className="shop-stat-line">
+              <span>{pet.passive}</span>
+              {pet.statBonus?.speed ? <span>+{pet.statBonus.speed} SPD</span> : null}
+              {pet.statBonus?.lootFind ? <span>+{pet.statBonus.lootFind}% Loot</span> : null}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="panel profile-card daily-card">
@@ -131,6 +167,20 @@ export function ProfileScreen({ save, updateSave, notify }: Props) {
         <div className="record-list">
           {WEEKLY_CHALLENGES.map(challenge => <div key={challenge.id}><b>{challenge.title}</b><span>{challenge.description} • Reward {challenge.rewardCoins} coins</span></div>)}
         </div>
+      </div>
+
+      <div className="panel profile-card">
+        <p className="eyebrow">Practice Mode</p>
+        <h2>Training & Learning</h2>
+        <p className="muted">Practice stages let you learn boss patterns and combos without risking real rewards.</p>
+        {Object.keys(save.player.practiceModeClears ?? {}).length === 0 ? <p className="muted">Enter a stage in Practice Mode to record training runs.</p> : (
+          <div className="record-list">
+            {Object.entries(save.player.practiceModeClears ?? {}).map(([areaId, clears]) => (
+              <div key={areaId}><b>{getArea(areaId).name}</b><span>{clears} practice run{clears === 1 ? '' : 's'}</span></div>
+            ))}
+            <div key="telemetry"><b>Total Boss Practice</b><span>{save.player.telemetry?.bossPracticeClears ?? 0} clears</span></div>
+          </div>
+        )}
       </div>
 
       <div className="panel profile-card">

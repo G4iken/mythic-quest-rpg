@@ -23,6 +23,8 @@ interface Props {
   initialAreaId?: string;
   autoStart?: boolean;
   returnScreen?: Screen;
+  towerMode?: boolean;
+  practiceMode?: boolean;
 }
 
 type Phase = 'menu' | 'explore' | 'bossIntro' | 'boss' | 'clear' | 'defeat';
@@ -107,6 +109,7 @@ interface Runtime3D {
   bannerTimer: number;
   stageTime: number;
   characterId: string;
+  towerFloor: number;
   player: {
     x: number;
     z: number;
@@ -145,6 +148,7 @@ interface Runtime3D {
   potionsUsed: number;
   bossWarned: boolean;
   bossIntroTimer: number;
+  bossPhase: 1 | 2;
   cameraShake: number;
   difficulty: Difficulty;
   petId: string;
@@ -223,15 +227,17 @@ function elementMultiplier(attackElement: ElementType, target: Pick<Fighter3D, '
   return 1;
 }
 
-function variantFor(index: number, areaId: string): Fighter3D['variant'] {
-  if (index % 7 === 0 && areaIndex(areaId) >= 2) return 'elite';
+function variantFor(index: number, areaId: string, difficulty: Difficulty = 'normal'): Fighter3D['variant'] {
+  const eliteChance = difficulty === 'nightmare' ? 0.35 : difficulty === 'hard' ? 0.2 : 0.1;
+  const seed = Math.sin(index * 12.9898 + areaIndex(areaId) * 78.233) * 43758.5453 % 1;
+  if (seed < eliteChance && areaIndex(areaId) >= 1) return 'elite';
   if (index % 5 === 0) return 'swift';
   if (index % 4 === 0) return 'armored';
   return 'normal';
 }
 
-function applyVariantAndDifficulty(enemy: Fighter3D, areaId: string, index: number, difficulty: Difficulty): Fighter3D {
-  const variant = variantFor(index, areaId);
+function applyVariantAndDifficulty(enemy: Fighter3D, areaId: string, index: number, difficulty: Difficulty, towerFloor: number = 1): Fighter3D {
+  const variant = variantFor(index, areaId, difficulty, towerFloor);
   const element = enemyElementProfile(enemy.sourceId, areaId);
   const diff = difficultyConfig(difficulty);
   const hpVariant = variant === 'elite' ? 1.35 : variant === 'armored' ? 1.18 : 1;
@@ -327,7 +333,7 @@ function gradeRun(time: number, hpPercent: number, combo: number) {
   return score >= 5 ? 'S' : score >= 4 ? 'A' : score >= 2 ? 'B' : 'C';
 }
 
-function createRuntime(save: GameSave, forcedAreaId?: string): Runtime3D {
+function createRuntime(save: GameSave, forcedAreaId?: string, towerFloor = 1): Runtime3D {
   const areaId = forcedAreaId ?? save.player.currentAreaId ?? 'green-village';
   const difficulty = save.settings.difficulty ?? 'normal';
   const area = getArea(areaId);
@@ -335,12 +341,14 @@ function createRuntime(save: GameSave, forcedAreaId?: string): Runtime3D {
   const stats = getEquippedStats(save);
   const character = getCharacter(save.player.characterId);
   const pet = getPet(save.player.activePetId);
-  const enemyCount = Math.min(24, 8 + Math.floor(idx * 1.45));
-  const spreadX = 11 + idx * .65;
+  const towerScale = Math.max(1, Math.min(3, 1 + towerFloor * 0.14));
+  const baseMult = difficulty === 'nightmare' ? 1.75 : difficulty === 'hard' ? 1.375 : 1;
+  const enemyCount = Math.min(26, Math.floor((8 + Math.floor(idx * 1.45) + Math.floor(towerFloor / 2)) * baseMult));
+  const spreadX = 11 + idx * .65 + towerFloor * .12;
   const enemies = Array.from({ length: enemyCount }, (_, index) => {
     const enemyId = area.normalEnemyIds[index % area.normalEnemyIds.length];
     const row = index % 3 - 1;
-    return applyVariantAndDifficulty(makeEnemy(enemyId, rng(-spreadX, spreadX) + (index % 2 ? 2.5 : -2.5), row * 4.2 + rng(-.6, .6), index), areaId, index, difficulty);
+    return applyVariantAndDifficulty(makeEnemy(enemyId, rng(-spreadX, spreadX) + (index % 2 ? 2.5 : -2.5), row * 4.2 + rng(-.6, .6), index), areaId, index, difficulty, towerFloor);
   });
   const pickups = Array.from({ length: 6 + Math.min(5, idx) }, (_, index) => ({
     id: `pickup-${index}-${uid()}`,
@@ -367,8 +375,8 @@ function createRuntime(save: GameSave, forcedAreaId?: string): Runtime3D {
   return {
     phase: 'menu',
     areaId,
-    size: { halfX: 19.5, halfZ: 11.2 },
-    message: '3D action stage ready. Clear monsters, open the boss gate, then return to village.',
+    size: { halfX: 19.5 + towerFloor * .75, halfZ: 11.2 + towerFloor * .4 },
+    message: towerFloor > 1 ? `Tower Floor ${towerFloor} ready. Survive stronger foes and advance.` : '3D action stage ready. Clear monsters, open the boss gate, then return to village.',
     bannerTimer: 2.8,
     stageTime: 0,
     characterId: character.id,
@@ -410,7 +418,9 @@ function createRuntime(save: GameSave, forcedAreaId?: string): Runtime3D {
     potionsUsed: 0,
     bossWarned: false,
     bossIntroTimer: 0,
+    bossPhase: 1,
     cameraShake: 0,
+    towerFloor,
     difficulty,
     petId: pet.id
   };
@@ -433,10 +443,10 @@ function getGatePosition() {
   return { x: 17.1, z: 0 };
 }
 
-export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaId, autoStart = false, returnScreen = 'village' }: Props) {
+export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaId, autoStart = false, returnScreen = 'village', towerMode = false, practiceMode = false }: Props) {
   const startingAreaId = initialAreaId ?? save.player.currentAreaId ?? 'green-village';
   const [selectedAreaId, setSelectedAreaId] = useState(startingAreaId);
-  const runtimeRef = useRef<Runtime3D>(createRuntime(save, startingAreaId));
+  const runtimeRef = useRef<Runtime3D>(createRuntime(save, startingAreaId, towerMode ? (save.player.towerBestFloor ? save.player.towerBestFloor + 1 : 1) : 1));
   const stickRef = useRef<StickVector>({ x: 0, y: 0 });
   const keyboardRef = useRef<StickVector>({ x: 0, y: 0 });
   const actionRef = useRef<(key: ControlKey) => void>(() => undefined);
@@ -463,10 +473,20 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
 
   useEffect(() => {
     const nextAreaId = initialAreaId ?? save.player.currentAreaId ?? selectedAreaId;
-    const nextRuntime = createRuntime(save, nextAreaId);
+    const floor = towerMode ? (save.player.towerBestFloor ? save.player.towerBestFloor + 1 : 1) : 1;
+    const nextRuntime = createRuntime(save, nextAreaId, towerMode ? floor : 1);
     if (autoStart) {
       nextRuntime.phase = 'explore';
-      nextRuntime.message = `${getArea(nextAreaId).name}: all battles are now real 3D. Clear monsters, collect loot, then enter the boss gate.`;
+      if (towerMode) {
+        nextRuntime.message = `Tower Floor ${nextRuntime.towerFloor}: survive the gauntlet and beat the guardian boss.`;
+      } else if (practiceMode) {
+        nextRuntime.message = `Practice ${getArea(nextAreaId).name}: test builds and learn the boss pattern. No rewards are saved.`;
+      } else {
+        const difficulty = save.settings.difficulty ?? 'normal';
+        const diffLabel = difficultyConfig(difficulty).label;
+        const eliteChance = difficulty === 'nightmare' ? 35 : difficulty === 'hard' ? 20 : 10;
+        nextRuntime.message = `${getArea(nextAreaId).name} • ${diffLabel} (${eliteChance}% elite): clear monsters, collect loot, then enter the boss gate.`;
+      }
       nextRuntime.bannerTimer = 3;
       audio.startMusic('battle');
     }
@@ -474,7 +494,7 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
     setSelectedAreaId(nextAreaId);
     forceRender(value => value + 1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save.saveSlotId, save.player.characterId, initialAreaId, autoStart]);
+  }, [save.saveSlotId, save.player.characterId, initialAreaId, autoStart, towerMode, practiceMode, save.player.towerBestFloor]);
 
   actionRef.current = action;
 
@@ -600,15 +620,18 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
       const data = ENEMIES[enemy.sourceId];
       const loot = pickLoot(enemy.sourceId);
       const petBonus = getPet(r.petId).statBonus.lootFind ?? 0;
+      const eliteBonus = enemy.variant === 'elite' ? 1.5 : 1;
       r.kills += enemy.kind === 'boss' ? 0 : 1;
       const diff = difficultyConfig(r.difficulty);
-      r.rewardXp += Math.round(data.xpReward * diff.xp);
-      r.rewardCoins += Math.round(data.coinReward * diff.coins);
+      r.rewardXp += Math.round(data.xpReward * diff.xp * eliteBonus);
+      r.rewardCoins += Math.round(data.coinReward * diff.coins * eliteBonus);
       if (Math.random() < Math.min(.95, (enemy.variant === 'elite' ? .85 : .45) + petBonus)) loot.push({ itemId: materialForElement(enemy.element), quantity: enemy.kind === 'boss' ? 2 : 1 });
+      if (enemy.variant === 'elite' && Math.random() < .35) loot.push({ itemId: materialForElement(enemy.element), quantity: 1 });
       r.rewardLoot = mergeLoot([...r.rewardLoot, ...loot]);
       chargeUltimate(enemy.kind === 'boss' ? 40 : 15);
       audio.playSfx(enemy.kind === 'boss' ? 'victory' : 'kill');
-      addFloat(enemy.x, enemy.z, 3.0, `+${data.xpReward} XP`, 'system');
+      const msg = enemy.variant === 'elite' ? `+${Math.round(data.xpReward * eliteBonus)} XP (ELITE)` : `+${data.xpReward} XP`;
+      addFloat(enemy.x, enemy.z, 3.0, msg, 'system');
       if (enemy.kind !== 'boss' && r.enemies.every(next => !next.alive)) setMessage('All monsters cleared. The 3D boss gate is open!', 2.5);
     }
   }
@@ -642,9 +665,17 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
       notify(`Locked: ${target.unlockCondition}`, 'warning');
       return;
     }
-    runtimeRef.current = createRuntime(save, areaId);
+    const floor = towerMode ? (save.player.towerBestFloor ? save.player.towerBestFloor + 1 : 1) : 1;
+    const difficulty = save.settings.difficulty ?? 'normal';
+    const diffLabel = difficultyConfig(difficulty).label;
+    const eliteChance = difficulty === 'nightmare' ? 35 : difficulty === 'hard' ? 20 : 10;
+    runtimeRef.current = createRuntime(save, areaId, floor);
     runtimeRef.current.phase = 'explore';
-    runtimeRef.current.message = `${target.name} • ${difficultyConfig(save.settings.difficulty ?? 'normal').label}: move in 3D, exploit elements, collect materials, then enter the boss gate.`;
+    runtimeRef.current.message = towerMode
+      ? `Tower Floor ${floor}: test your build and beat the guardian boss.`
+      : practiceMode
+        ? `${target.name} Practice: no rewards are saved, only patterns and combos.`
+        : `${target.name} • ${diffLabel} (${eliteChance}% elite): clear monsters, collect loot, then enter the boss gate.`;
     setSelectedAreaId(areaId);
     setPaused(false);
     audio.startMusic('battle');
@@ -810,50 +841,80 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
     const r = runtimeRef.current;
     if (r.finishedSaved) return;
     const stageArea = getArea(r.areaId);
+    const isTower = towerMode;
+    const isPractice = practiceMode;
     r.finishedSaved = true;
     const grade = gradeRun(r.stageTime, r.player.hp / Math.max(1, r.player.maxHp), r.player.maxCombo);
     const stars = { noPotion: r.potionsUsed === 0, sRank: grade === 'S', comboMaster: r.player.maxCombo >= 12 };
-    let next: GameSave = {
-      ...save,
-      player: {
-        ...save.player,
-        hp: Math.max(1, Math.round(r.player.hp)),
-        mana: Math.max(0, Math.round(r.player.mana)),
-        coins: save.player.coins + r.rewardCoins,
-        currentAreaId: r.areaId,
-        bossesDefeated: save.player.bossesDefeated.includes(stageArea.bossId) ? save.player.bossesDefeated : [...save.player.bossesDefeated, stageArea.bossId],
-        unlockedAreaIds: stageArea.nextAreaId && !save.player.unlockedAreaIds.includes(stageArea.nextAreaId) ? [...save.player.unlockedAreaIds, stageArea.nextAreaId] : save.player.unlockedAreaIds,
-        bestStageScores: { ...(save.player.bestStageScores ?? {}), [r.areaId]: { grade, clearTime: Math.round(r.stageTime), kills: r.kills, combo: r.player.maxCombo } },
-        starObjectives: { ...(save.player.starObjectives ?? {}), [r.areaId]: stars },
-        storyFlags: [...new Set([...(save.player.storyFlags ?? []), `cleared-${r.areaId}`])],
-        telemetry: {
-          ...(save.player.telemetry ?? { deaths: 0, potionsUsed: 0, totalKills: 0, totalCoins: 0, totalPlaySeconds: 0, bossPracticeClears: 0, challengeClears: 0 }),
-          potionsUsed: (save.player.telemetry?.potionsUsed ?? 0) + r.potionsUsed,
-          totalKills: (save.player.telemetry?.totalKills ?? 0) + r.kills + 1,
-          totalCoins: (save.player.telemetry?.totalCoins ?? 0) + r.rewardCoins,
-          totalPlaySeconds: (save.player.telemetry?.totalPlaySeconds ?? 0) + Math.round(r.stageTime),
-          challengeClears: (save.player.telemetry?.challengeClears ?? 0) + (r.areaId.includes('daily') ? 1 : 0),
-          deaths: save.player.telemetry?.deaths ?? 0,
-          bossPracticeClears: save.player.telemetry?.bossPracticeClears ?? 0
+    let next: GameSave = save;
+
+    if (isPractice) {
+      next = {
+        ...save,
+        player: {
+          ...save.player,
+          practiceModeClears: {
+            ...(save.player.practiceModeClears ?? {}),
+            [r.areaId]: (save.player.practiceModeClears?.[r.areaId] ?? 0) + 1
+          },
+          telemetry: {
+            ...(save.player.telemetry ?? { deaths: 0, potionsUsed: 0, totalKills: 0, totalCoins: 0, totalPlaySeconds: 0, bossPracticeClears: 0, challengeClears: 0 }),
+            bossPracticeClears: (save.player.telemetry?.bossPracticeClears ?? 0) + 1
+          }
+        }
+      };
+      updateSave(next, false);
+      notify(`Practice clear recorded for ${stageArea.name}. No rewards saved.`, 'info');
+    } else {
+      next = {
+        ...save,
+        player: {
+          ...save.player,
+          hp: Math.max(1, Math.round(r.player.hp)),
+          mana: Math.max(0, Math.round(r.player.mana)),
+          coins: save.player.coins + r.rewardCoins,
+          currentAreaId: isTower ? save.player.currentAreaId : r.areaId,
+          bossesDefeated: isTower
+            ? save.player.bossesDefeated
+            : save.player.bossesDefeated.includes(stageArea.bossId) ? save.player.bossesDefeated : [...save.player.bossesDefeated, stageArea.bossId],
+          unlockedAreaIds: isTower
+            ? save.player.unlockedAreaIds
+            : stageArea.nextAreaId && !save.player.unlockedAreaIds.includes(stageArea.nextAreaId) ? [...save.player.unlockedAreaIds, stageArea.nextAreaId] : save.player.unlockedAreaIds,
+          bestStageScores: { ...(save.player.bestStageScores ?? {}), [r.areaId]: { grade, clearTime: Math.round(r.stageTime), kills: r.kills, combo: r.player.maxCombo } },
+          starObjectives: { ...(save.player.starObjectives ?? {}), [r.areaId]: stars },
+          storyFlags: [...new Set([...(save.player.storyFlags ?? []), `cleared-${r.areaId}`])],
+          telemetry: {
+            ...(save.player.telemetry ?? { deaths: 0, potionsUsed: 0, totalKills: 0, totalCoins: 0, totalPlaySeconds: 0, bossPracticeClears: 0, challengeClears: 0 }),
+            potionsUsed: (save.player.telemetry?.potionsUsed ?? 0) + r.potionsUsed,
+            totalKills: (save.player.telemetry?.totalKills ?? 0) + r.kills + 1,
+            totalCoins: (save.player.telemetry?.totalCoins ?? 0) + r.rewardCoins,
+            totalPlaySeconds: (save.player.telemetry?.totalPlaySeconds ?? 0) + Math.round(r.stageTime),
+            challengeClears: (save.player.telemetry?.challengeClears ?? 0) + (r.areaId.includes('daily') ? 1 : 0),
+            deaths: save.player.telemetry?.deaths ?? 0,
+            bossPracticeClears: save.player.telemetry?.bossPracticeClears ?? 0
+          },
+          guildAffinity: { ...(save.player.guildAffinity ?? {}), blacksmith: (save.player.guildAffinity?.blacksmith ?? 0) + 1, elder: (save.player.guildAffinity?.elder ?? 0) + 1 },
+          towerBestFloor: isTower ? Math.max(save.player.towerBestFloor ?? 0, r.towerFloor) : save.player.towerBestFloor
         },
-        guildAffinity: { ...(save.player.guildAffinity ?? {}), blacksmith: (save.player.guildAffinity?.blacksmith ?? 0) + 1, elder: (save.player.guildAffinity?.elder ?? 0) + 1 }
-      },
-      areaProgress: save.areaProgress.map(progress => progress.areaId === r.areaId ? { ...progress, normalWins: progress.normalWins + 1, bossDefeated: true } : progress)
-    };
-    next = addRewardItems(next, r.rewardLoot);
-    next = progressQuest(next, 'defeat_enemy', r.kills);
-    r.rewardLoot.forEach(item => { next = progressQuest(next, 'collect_item', item.quantity, item.itemId); });
-    next = progressQuest(next, 'defeat_boss', 1, stageArea.bossId);
-    const xpResult = awardXp(next, r.rewardXp);
-    next = xpResult.save;
-    updateSave(next, true);
-    if (xpResult.leveledUp) audio.playSfx('levelUp');
-    if (stageArea.bossId === 'lava-dragon') notify('Story hero unlocked: Kaida the Flame Samurai.', 'success');
-    if (stageArea.bossId === 'storm-titan') notify('Story hero unlocked: Zeph the Storm Knight.', 'success');
-    if (stageArea.bossId === 'void-librarian') notify('Story hero unlocked: Vex the Void Duelist.', 'success');
-    const boardRun: LeaderboardRun = { id: `${save.accountId}-${r.areaId}-${Date.now()}`, areaId: r.areaId, playerName: save.player.name, heroName: character.name, grade, clearTime: Math.round(r.stageTime), combo: r.player.maxCombo, kills: r.kills, difficulty: r.difficulty, createdAt: new Date().toISOString() };
-    void submitLeaderboardRun(boardRun).catch(() => undefined);
-    notify(`3D stage cleared! Grade ${grade} • Stars ${Object.values(stars).filter(Boolean).length}/3 • +${r.rewardXp} XP • +${r.rewardCoins} coins`, 'success');
+        areaProgress: save.areaProgress.map(progress => progress.areaId === r.areaId ? { ...progress, normalWins: progress.normalWins + 1, bossDefeated: true } : progress)
+      };
+      next = addRewardItems(next, r.rewardLoot);
+      next = progressQuest(next, 'defeat_enemy', r.kills);
+      r.rewardLoot.forEach(item => { next = progressQuest(next, 'collect_item', item.quantity, item.itemId); });
+      next = progressQuest(next, 'defeat_boss', 1, stageArea.bossId);
+      const xpResult = awardXp(next, r.rewardXp);
+      next = xpResult.save;
+      updateSave(next, true);
+      if (xpResult.leveledUp) audio.playSfx('levelUp');
+      if (stageArea.bossId === 'lava-dragon') notify('Story hero unlocked: Kaida the Flame Samurai.', 'success');
+      if (stageArea.bossId === 'storm-titan') notify('Story hero unlocked: Zeph the Storm Knight.', 'success');
+      if (stageArea.bossId === 'void-librarian') notify('Story hero unlocked: Vex the Void Duelist.', 'success');
+      if (!isPractice) {
+        const boardRun: LeaderboardRun = { id: `${save.accountId}-${r.areaId}-${Date.now()}`, areaId: r.areaId, playerName: save.player.name, heroName: character.name, grade, clearTime: Math.round(r.stageTime), combo: r.player.maxCombo, kills: r.kills, difficulty: r.difficulty, createdAt: new Date().toISOString() };
+        void submitLeaderboardRun(boardRun).catch(() => undefined);
+      }
+      notify(`3D stage cleared! Grade ${grade} • Stars ${Object.values(stars).filter(Boolean).length}/3 • +${r.rewardXp} XP • +${r.rewardCoins} coins`, 'success');
+    }
   }
 
   return (
@@ -916,8 +977,21 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
             <b>{runtime.phase === 'boss' && runtime.boss ? `${runtime.boss.name}` : `${livingEnemies} monsters left`}</b>
             <span>{runtime.phase === 'boss' && runtime.boss ? `Weak ${elementIcon(runtime.boss.weakness)} • Res ${elementIcon(runtime.boss.resistance)}` : gateOpen ? 'Gate is open' : `Next goal: clear ${area.name}`}</span>
           </div>}
+          {!photoMode && towerMode && <div className="all3d-tower-panel">
+            <b>Tower Challenge</b>
+            <span>Floor {runtime.towerFloor}</span>
+            <span>Best Floor: {save.player.towerBestFloor ?? 0}</span>
+          </div>}
+          {!photoMode && <div className="all3d-minimap">
+            <div className="all3d-minimap-title">Minimap</div>
+            <div className="all3d-minimap-grid">
+              <div className="all3d-minimap-player" style={{ left: `${clamp((runtime.player.x + runtime.size.halfX) / (runtime.size.halfX * 2), 0, 1) * 100}%`, top: `${clamp((runtime.player.z + runtime.size.halfZ) / (runtime.size.halfZ * 2), 0, 1) * 100}%` }} />
+              {runtime.boss && <div className="all3d-minimap-boss" style={{ left: `${clamp((runtime.boss.x + runtime.size.halfX) / (runtime.size.halfX * 2), 0, 1) * 100}%`, top: `${clamp((runtime.boss.z + runtime.size.halfZ) / (runtime.size.halfZ * 2), 0, 1) * 100}%` }} />}
+              <div className="all3d-minimap-gate" style={{ left: `${clamp((17.1 + runtime.size.halfX) / (runtime.size.halfX * 2), 0, 1) * 100}%`, top: `${clamp((0 + runtime.size.halfZ) / (runtime.size.halfZ * 2), 0, 1) * 100}%` }} />
+            </div>
+          </div>}
 
-          {!photoMode && (runtime.phase === 'boss' || runtime.phase === 'bossIntro') && runtime.boss && <div className="all3d-boss-bar"><span>{elementIcon(runtime.boss.element)} {runtime.boss.name} • weak to {elementIcon(runtime.boss.weakness)}</span><div><i style={{ width: bossPct }} /></div></div>}
+          {!photoMode && (runtime.phase === 'boss' || runtime.phase === 'bossIntro') && runtime.boss && <div className="all3d-boss-bar"><span>{elementIcon(runtime.boss.element)} {runtime.boss.name} • Phase {runtime.bossPhase}{runtime.bossPhase === 2 ? ' (Enraged)' : ''}</span><div><i style={{ width: bossPct }} /></div></div>}
           {!photoMode && runtime.bannerTimer > 0 && <div className="all3d-banner">{runtime.message}</div>}
           {!photoMode && <div className="all3d-objective"><span>{runtime.phase === 'bossIntro' ? 'Boss Intro' : runtime.phase === 'boss' ? 'Boss Fight' : gateOpen ? 'Gate Open' : `Defeat ${livingEnemies} Monsters`}</span><b>{runtime.phase.toUpperCase()}</b><em>{Math.round(runtime.stageTime)}s • Max Combo {runtime.player.maxCombo}</em></div>}
 
@@ -930,7 +1004,7 @@ export function Stage3DActionScreen({ save, go, updateSave, notify, initialAreaI
 
           {showGuide && <div className="all3d-overlay-card"><h2>3D Controls</h2><p>Move with joystick or WASD. Rotate your attack direction by moving. Clear all monsters, walk into the glowing gate, defeat the boss, and return to the 3D village.</p><div className="all3d-guide-grid"><span>WASD</span><b>Move</b><span>J</span><b>Slash</b><span>K</span><b>Dash</b><span>L</span><b>Skill</b><span>U</span><b>Ultimate</b><span>P</span><b>Potion</b></div><button className="primary" onClick={() => { setShowGuide(false); if (!(save.settings.touchTutorialSeen ?? false)) updateSave({ ...save, settings: { ...save.settings, touchTutorialSeen: true } }, true); }}>OKAY</button></div>}
           {paused && <div className="all3d-overlay-card"><h2>Paused</h2><p>{area.name} • {livingEnemies} monsters remaining • {character.name}</p><button className="primary" onClick={() => setPaused(false)}>Resume</button><button onClick={returnToVillage}>Return to 3D Village</button><button onClick={() => go('shop')}>Upgrade Shop</button><button onClick={() => go('settings')}>Settings</button><button onClick={() => { setPaused(false); setPhotoMode(true); }}>Photo Mode</button></div>}
-          {(runtime.phase === 'clear' || runtime.phase === 'defeat') && <div className="all3d-overlay-card result"><h2>{runtime.phase === 'clear' ? '3D Stage Clear!' : 'Defeated'}</h2><p>{runtime.phase === 'clear' ? `Rewards: ${runtime.rewardXp} XP • ${runtime.rewardCoins} coins • Max Combo ${runtime.player.maxCombo}` : 'Return to village, upgrade gear, and try again.'}</p>{runtime.rewardLoot.length > 0 && <small>Loot: {runtime.rewardLoot.map(item => `${ITEMS[item.itemId]?.name ?? item.itemId} x${item.quantity}`).join(', ')}</small>}<div><button className="primary" onClick={returnToVillage}>Back to 3D Village</button><button onClick={() => go('shop')}>Upgrade</button></div></div>}
+          {(runtime.phase === 'clear' || runtime.phase === 'defeat') && <div className="all3d-overlay-card result"><h2>{runtime.phase === 'clear' ? (towerMode ? `Tower Floor ${runtime.towerFloor} Clear!` : '3D Stage Clear!') : 'Defeated'}</h2><p>{runtime.phase === 'clear' ? `Rewards: ${runtime.rewardXp} XP • ${runtime.rewardCoins} coins • Max Combo ${runtime.player.maxCombo}` : 'Return to village, upgrade gear, and try again.'}</p>{runtime.rewardLoot.length > 0 && <small>Loot: {runtime.rewardLoot.map(item => `${ITEMS[item.itemId]?.name ?? item.itemId} x${item.quantity}`).join(', ')}</small>}<div><button className="primary" onClick={returnToVillage}>Back to 3D Village</button><button onClick={() => go('shop')}>Upgrade</button></div></div>}
         </>
       )}
     </section>
@@ -1030,8 +1104,10 @@ function StageScene({ runtimeRef, stickRef, keyboardRef, pausedRef, forceRender,
         const bossRage = r.phase === 'boss' && enemy.hp < enemy.maxHp * .4;
         if (bossRage && !r.bossWarned) {
           r.bossWarned = true;
-          setMessage(`${enemy.name} entered rage phase. Red rings mean heavy attacks!`, 2.2);
-          addFloat(enemy.x, enemy.z, 3.3, 'WARNING', 'coin');
+          r.bossPhase = 2;
+          enemy.speed *= 1.18;
+          setMessage(`${enemy.name} entered phase 2. Heavy attacks incoming!`, 2.2);
+          addFloat(enemy.x, enemy.z, 3.3, 'ENRAGED', 'coin');
         }
         if (distance > (enemy.kind === 'boss' ? 2.7 : 1.75)) {
           const angle = Math.atan2(p.z - enemy.z, p.x - enemy.x);
@@ -1057,6 +1133,7 @@ function StageScene({ runtimeRef, stickRef, keyboardRef, pausedRef, forceRender,
         boss.speed += areaIndex(r.areaId) * .1;
         r.boss = boss;
         r.phase = 'bossIntro';
+        r.bossPhase = 1;
         r.bossIntroTimer = reduceMotion ? .7 : 2.4;
         r.bossWarned = false;
         setMessage(`Cinematic boss intro: ${boss.name} emerges. Weakness ${elementIcon(boss.weakness)}.`, 3);
@@ -1244,11 +1321,12 @@ function Enemy3D({ enemy, player, boss = false }: { enemy: Fighter3D; player: Ru
     <group position={[enemy.x, enemy.y, enemy.z]} rotation={[0, -angle + Math.PI / 2, 0]} scale={scale}>
       <mesh position={[0, .55 + Math.sin(performance.now() / 210 + enemy.x) * .04, 0]} castShadow>
         {enemy.kind === 'slime' ? <sphereGeometry args={[.55, 22, 14]} /> : enemy.kind === 'dragon' || boss ? <capsuleGeometry args={[.48, 1.05, 8, 18]} /> : <capsuleGeometry args={[.36, .78, 8, 16]} />}
-        <meshStandardMaterial color={color} roughness={.78} emissive={enemy.hurt > 0 ? '#ff0000' : '#000000'} emissiveIntensity={enemy.hurt > 0 ? .7 : .04} />
+        <meshStandardMaterial color={color} roughness={.78} emissive={enemy.hurt > 0 ? '#ff0000' : enemy.variant === 'elite' ? color : '#000000'} emissiveIntensity={enemy.hurt > 0 ? .7 : enemy.variant === 'elite' ? .35 : .04} />
       </mesh>
       <mesh position={[.22, .86, .34]}><sphereGeometry args={[.07, 10, 10]} /><meshStandardMaterial color="#111" /></mesh>
       <mesh position={[-.22, .86, .34]}><sphereGeometry args={[.07, 10, 10]} /><meshStandardMaterial color="#111" /></mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .035, 0]}><ringGeometry args={[boss ? 1.35 : .7, boss ? 1.48 : .78, 42]} /><meshStandardMaterial color={color} emissive={color} emissiveIntensity={boss ? .75 : .32} transparent opacity={boss ? .42 : .18} /></mesh>
+      {enemy.variant === 'elite' && <mesh rotation={[-Math.PI / 2, 0, performance.now() / 600]} position={[0, .04, 0]}><ringGeometry args={[.95, 1.1, 32]} /><meshStandardMaterial color="#ff00ff" emissive="#ff00ff" emissiveIntensity={1.2} transparent opacity={.45} /></mesh>}
       {boss && <><mesh position={[.38, 1.18, .04]} rotation={[0,0,-.55]} castShadow><coneGeometry args={[.1, .48, 10]} /><meshStandardMaterial color="#ffe6a0" emissive="#ffbb55" emissiveIntensity={.25} /></mesh><mesh position={[-.38, 1.18, .04]} rotation={[0,0,.55]} castShadow><coneGeometry args={[.1, .48, 10]} /><meshStandardMaterial color="#ffe6a0" emissive="#ffbb55" emissiveIntensity={.25} /></mesh></>}
       {(enemy.telegraph > 0 || (boss && enemy.hp < enemy.maxHp * .42)) && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, .045, 0]}><ringGeometry args={[1.05, 1.55, 56]} /><meshStandardMaterial color="#ff342b" emissive="#ff1900" emissiveIntensity={1.6} transparent opacity={.58} /></mesh>}
       <mesh position={[0, 1.55, 0]}><boxGeometry args={[1.1, .08, .08]} /><meshBasicMaterial color="#271015" /></mesh>

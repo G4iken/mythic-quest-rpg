@@ -45,6 +45,8 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [stageAreaId, setStageAreaId] = useState('green-village');
+  const [towerMode, setTowerMode] = useState(false);
+  const [practiceMode, setPracticeMode] = useState(false);
   const [victory, setVictory] = useState<null | { xp: number; coins: number; loot: Array<{ itemId: string; quantity: number }>; leveledUp: boolean; unlockedSkills: string[] }>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -240,9 +242,26 @@ export default function App() {
       notify(`Locked: ${area.unlockCondition}`, 'warning');
       return;
     }
+    setTowerMode(false);
+    setPracticeMode(false);
     const next = { ...currentSave, player: { ...currentSave.player, currentAreaId: areaId } };
     setStageAreaId(areaId);
     updateSave(next, false);
+    setScreen('stage');
+    audio.startMusic('battle');
+    audio.playSfx('click');
+  }
+
+  function enterPracticeStage(areaId: string) {
+    if (!currentSave) return;
+    const area = getArea(areaId);
+    if (!currentSave.player.unlockedAreaIds.includes(areaId) || currentSave.player.level < area.requiredLevel) {
+      notify(`Locked: ${area.unlockCondition}`, 'warning');
+      return;
+    }
+    setTowerMode(false);
+    setPracticeMode(true);
+    setStageAreaId(areaId);
     setScreen('stage');
     audio.startMusic('battle');
     audio.playSfx('click');
@@ -259,6 +278,15 @@ export default function App() {
     setBattle(nextBattle);
     setScreen('battle');
     audio.playSfx(mode === 'boss' ? 'enemyAttack' : 'attack');
+  }
+
+  function enterTower() {
+    if (!currentSave) return;
+    setTowerMode(true);
+    setStageAreaId('green-village');
+    setScreen('stage');
+    audio.startMusic('battle');
+    audio.playSfx('click');
   }
 
   function openChest(areaId: string) {
@@ -304,8 +332,8 @@ export default function App() {
 
     return (
       <Shell save={currentSave} screen={screen} go={setScreen} onManualSave={() => void manualSave()} onLogout={() => void handleLogout()}>
-        {screen === 'village' && <VillageScreen save={currentSave} go={setScreen} onEnterStage={enterActionStage} onOpenChest={openChest} />}
-        {screen === 'stage' && <Stage3DActionScreen save={currentSave} go={setScreen} updateSave={updateSave} notify={notify} initialAreaId={stageAreaId || currentSave.player.currentAreaId} autoStart returnScreen="village" />}
+        {screen === 'village' && <VillageScreen save={currentSave} go={setScreen} onEnterStage={enterActionStage} onOpenChest={openChest} onEnterTower={enterTower} onEnterPractice={enterPracticeStage} />}
+        {screen === 'stage' && <Stage3DActionScreen save={currentSave} go={setScreen} updateSave={updateSave} notify={notify} initialAreaId={stageAreaId || currentSave.player.currentAreaId} autoStart returnScreen="village" towerMode={towerMode} practiceMode={practiceMode} />}
         {screen === 'map' && <MapScreen save={currentSave} onBattle={enterBattle} onOpenChest={openChest} />}
         {screen === 'battle' && battle && <BattleScreen battle={battle} save={currentSave} setBattle={setBattle} setSaveDuringBattle={save => setCurrentSave(save)} onVictory={handleVictory} onDefeat={handleDefeat} onRun={() => { setBattle(null); setScreen('map'); audio.playSfx('defend'); notify('You escaped safely.', 'info'); }} />}
         {screen === 'inventory' && <InventoryScreen save={currentSave} updateSave={updateSave} />}
@@ -317,7 +345,7 @@ export default function App() {
         {screen === 'settings' && <SettingsScreen save={currentSave} updateSave={updateSave} />}
       </Shell>
     );
-  }, [screen, user, loading, authError, localSummaries, cloudSummaries, currentSave, battle, accountId, stageAreaId]);
+  }, [screen, user, loading, authError, localSummaries, cloudSummaries, currentSave, battle, accountId, stageAreaId, practiceMode]);
 
   return (
     <>
